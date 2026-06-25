@@ -1,7 +1,6 @@
 package com.foodmanager.foodmanager.service;
 
 import com.foodmanager.foodmanager.dto.LoginRequest;
-import com.foodmanager.foodmanager.dto.LoginResponse;
 import com.foodmanager.foodmanager.entity.Session;
 import com.foodmanager.foodmanager.entity.User;
 import com.foodmanager.foodmanager.exception.InvalidCredentialsException;
@@ -16,6 +15,7 @@ import java.security.SecureRandom;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.Base64;
+import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
@@ -26,7 +26,7 @@ public class AuthService {
     private final PasswordEncoder pwdEncoder;
     private final SecureRandom secureRandom = new SecureRandom(); // crypto strong rng for tokens
 
-    public LoginResponse login(LoginRequest req) {
+    public LoginResult login(LoginRequest req) {
         // find by email or username, either works as the identifier
         User user = userRepo.findByEmail(req.identifier())
                 .or(() -> userRepo.findByUsername(req.identifier()))
@@ -53,6 +53,10 @@ public class AuthService {
 
         log.info("user logged in: {}", user.getEmail());
 
-        return new LoginResponse(token, user.getId(), user.getUsername(), user.getEmail());
+        // token goes to the controller (for the cookie), never into the response body
+        return new LoginResult(token, user.getId(), user.getUsername(), user.getEmail());
     }
+
+    // internal carrier between service and controller, the token stays here and is not serialized out
+    public record LoginResult(String token, UUID id, String username, String email) {}
 }
