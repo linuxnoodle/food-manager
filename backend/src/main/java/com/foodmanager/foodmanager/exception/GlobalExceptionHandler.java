@@ -11,4 +11,9 @@ public class GlobalExceptionHandler {
     public ProblemDetail handleDuplicateEntity(DuplicateEntityException e){
         return ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, e.getMessage());
     }
+
+    @ExceptionHandler(InvalidCredentialsException.class) // 401 on bad login
+    public ProblemDetail handleInvalidCredentials(InvalidCredentialsException e){
+        return ProblemDetail.forStatusAndDetail(HttpStatus.UNAUTHORIZED, e.getMessage());
+    }
 }
