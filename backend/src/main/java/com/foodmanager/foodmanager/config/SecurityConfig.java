@@ -24,8 +24,10 @@ public class SecurityConfig {
             .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS)) // we keep sessions in the db, not in memory
             .authorizeHttpRequests(auth -> auth
                 .requestMatchers("/api/auth/login", "/api/user/register").permitAll()
+                .requestMatchers("/h2-console/**").permitAll() // dev only, h2 web console
                 .anyRequest().authenticated()
             )
+            .headers(h -> h.frameOptions(fo -> fo.sameOrigin())) // h2 console is iframe-based
             .addFilterBefore(new SessionAuthFilter(sessionRepo), UsernamePasswordAuthenticationFilter.class)
             .exceptionHandling(e -> e.authenticationEntryPoint((req, res, ex) -> {
                 // 401 as application/problem+json so it matches the rest of the api
