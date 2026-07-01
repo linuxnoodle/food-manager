@@ -14,7 +14,7 @@ public class CorsConfig {
             @Override
             public void addCorsMappings(CorsRegistry registry) {
                 registry.addMapping("/api/**")
-                        .allowedOrigins("http://localhost:4201") // whatever frontend will be
+                        .allowedOrigins("http://localhost:5173") // whatever frontend will be
                         .allowedMethods("GET", "POST", "PUT", "DELETE", "OPTIONS")
                         .allowedHeaders("Content-Type")
                         .allowCredentials(true); // cookie auth needs credentialed cors
