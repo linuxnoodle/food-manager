@@ -16,4 +16,31 @@ public class GlobalExceptionHandler {
     public ProblemDetail handleInvalidCredentials(InvalidCredentialsException e){
         return ProblemDetail.forStatusAndDetail(HttpStatus.UNAUTHORIZED, e.getMessage());
     }
+
+    // food endpoints
+
+    @ExceptionHandler(FoodNotFoundException.class)
+    public ProblemDetail handleFoodNotFound(FoodNotFoundException e){
+        return ProblemDetail.forStatusAndDetail(HttpStatus.NOT_FOUND, e.getMessage());
+    }
+
+    @ExceptionHandler(InvalidSearchQueryException.class) // 400 on bad tag / no filters
+    public ProblemDetail handleInvalidSearchQuery(InvalidSearchQueryException e){
+        return ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, e.getMessage());
+    }
+
+    @ExceptionHandler(UpstreamRateLimitedException.class) // 503 — OFF 429, frontend must back off
+    public ProblemDetail handleUpstreamRateLimited(UpstreamRateLimitedException e){
+        return ProblemDetail.forStatusAndDetail(HttpStatus.SERVICE_UNAVAILABLE, e.getMessage());
+    }
+
+    @ExceptionHandler(UpstreamTimeoutException.class) // 504
+    public ProblemDetail handleUpstreamTimeout(UpstreamTimeoutException e){
+        return ProblemDetail.forStatusAndDetail(HttpStatus.GATEWAY_TIMEOUT, e.getMessage());
+    }
+
+    @ExceptionHandler(UpstreamException.class) // 502 fallback for the other Upstream* subtypes
+    public ProblemDetail handleUpstream(UpstreamException e){
+        return ProblemDetail.forStatusAndDetail(HttpStatus.BAD_GATEWAY, e.getMessage());
+    }
 }

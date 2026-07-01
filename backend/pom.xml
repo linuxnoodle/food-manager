@@ -57,6 +57,11 @@
 			<scope>runtime</scope>
 		</dependency>
 		<dependency>
+			<!-- caffeine cache for ingredient taxonomy (in-memory, ok to lose on restart) -->
+			<groupId>com.github.ben-manes.caffeine</groupId>
+			<artifactId>caffeine</artifactId>
+		</dependency>
+		<dependency>
 			<groupId>org.projectlombok</groupId>
 			<artifactId>lombok</artifactId>
 			<optional>true</optional>
