@@ -2,6 +2,7 @@ package com.foodmanager.foodmanager.controller;
 
 import com.foodmanager.foodmanager.dto.FoodDetail;
 import com.foodmanager.foodmanager.dto.FoodSearchPage;
+import com.foodmanager.foodmanager.dto.MacroFilter;
 import com.foodmanager.foodmanager.exception.InvalidSearchQueryException;
 import com.foodmanager.foodmanager.service.FoodSearchService;
 import com.foodmanager.foodmanager.service.FoodService;
@@ -41,15 +42,21 @@ public class FoodController {
     public FoodSearchPage search(
             @RequestParam(name = "include", required = false, defaultValue = "") String include,
             @RequestParam(name = "exclude", required = false, defaultValue = "") String exclude,
+            @RequestParam(name = "minProtein", required = false) Double minProtein,
+            @RequestParam(name = "maxCarbs", required = false) Double maxCarbs,
+            @RequestParam(name = "maxSugar", required = false) Double maxSugar,
+            @RequestParam(name = "maxFat", required = false) Double maxFat,
+            @RequestParam(name = "maxSalt", required = false) Double maxSalt,
             @RequestParam(name = "page", defaultValue = "1") int page,
             @RequestParam(name = "size", defaultValue = "20") int size) {
         List<String> includeTags = parseTags(include);
         List<String> excludeTags = parseTags(exclude);
         validateTags(includeTags);
         validateTags(excludeTags);
+        MacroFilter macros = new MacroFilter(minProtein, maxCarbs, maxSugar, maxFat, maxSalt);
         int safePage = Math.max(1, page);
         int safeSize = Math.max(1, Math.min(size, 50));
-        return foodSearchService.search(includeTags, excludeTags, safePage, safeSize);
+        return foodSearchService.search(includeTags, excludeTags, macros, safePage, safeSize);
     }
 
     /**
@@ -60,15 +67,21 @@ public class FoodController {
     public FoodSearchPage localSearch(
             @RequestParam(name = "include", required = false, defaultValue = "") String include,
             @RequestParam(name = "exclude", required = false, defaultValue = "") String exclude,
+            @RequestParam(name = "minProtein", required = false) Double minProtein,
+            @RequestParam(name = "maxCarbs", required = false) Double maxCarbs,
+            @RequestParam(name = "maxSugar", required = false) Double maxSugar,
+            @RequestParam(name = "maxFat", required = false) Double maxFat,
+            @RequestParam(name = "maxSalt", required = false) Double maxSalt,
             @RequestParam(name = "page", defaultValue = "1") int page,
             @RequestParam(name = "size", defaultValue = "20") int size) {
         List<String> includeTags = parseTags(include);
         List<String> excludeTags = parseTags(exclude);
         validateTags(includeTags);
         validateTags(excludeTags);
+        MacroFilter macros = new MacroFilter(minProtein, maxCarbs, maxSugar, maxFat, maxSalt);
         int safePage = Math.max(1, page);
         int safeSize = Math.max(1, Math.min(size, 50));
-        return foodSearchService.searchLocal(includeTags, excludeTags, safePage, safeSize);
+        return foodSearchService.searchLocal(includeTags, excludeTags, macros, safePage, safeSize);
     }
 
     /**

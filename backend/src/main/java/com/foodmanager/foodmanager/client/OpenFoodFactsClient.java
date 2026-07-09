@@ -1,5 +1,6 @@
 package com.foodmanager.foodmanager.client;
 
+import com.foodmanager.foodmanager.dto.MacroFilter;
 import com.foodmanager.foodmanager.dto.off.OffTaxonomySuggestionsResponse;
 import com.foodmanager.foodmanager.dto.off.OffV2SearchResponse;
 import com.foodmanager.foodmanager.dto.off.OffV3Product;
@@ -18,6 +19,8 @@ import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.util.UriComponentsBuilder;
 
+import java.net.URI;
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -50,6 +53,10 @@ public class OpenFoodFactsClient {
             "ingredients_tags,allergens_tags,additives_tags,nova_group," +
             "nutriscore_grade,nutriments";
 
+    // url-encoded comparison operators for the nutrient filter param names (>, <)
+    private static final String GT = "%3E";
+    private static final String LT = "%3C";
+
     // explicit constructor so the @Qualifier-named bean is wired unambiguously
     public OpenFoodFactsClient(@Qualifier("offRestClient") RestClient offRestClient) {
         this.offRestClient = offRestClient;
@@ -57,28 +64,43 @@ public class OpenFoodFactsClient {
 
     // --- v2 search ---
 
-    public OffV2SearchResponse search(List<String> includeTags, List<String> excludeTags, int page, int size) {
+    public OffV2SearchResponse search(List<String> includeTags, List<String> excludeTags, MacroFilter macros, int page, int size) {
         UriComponentsBuilder b = UriComponentsBuilder.fromPath("/api/v2/search")
                 .queryParam("fields", V2_SEARCH_FIELDS)
                 .queryParam("page", page)
                 .queryParam("page_size", size);
 
-        // OFF's tag filter syntax: tagtype_N / tag_contains_N / tag_N, indices must be contiguous from 0
-        int idx = 0;
-        for (String tag : includeTags) {
-            b.queryParam("tagtype_" + idx, "ingredients");
-            b.queryParam("tag_contains_" + idx, "contains");
-            b.queryParam("tag_" + idx, tag);
-            idx++;
-        }
+        // v2 filters by field-name params, not the legacy tagtype_N triplets (those
+        // are /cgi/search.pl v1 syntax, which v2 silently ignores and returns the
+        // whole db). one ingredients_tags value: comma = AND, "-" after the language
+        // prefix = NOT. so [en:chicken] minus [en:gluten] -> "en:chicken,en:-gluten".
+        List<String> terms = new ArrayList<>(includeTags);
         for (String tag : excludeTags) {
-            b.queryParam("tagtype_" + idx, "ingredients");
-            b.queryParam("tag_contains_" + idx, "does_not_contain");
-            b.queryParam("tag_" + idx, tag);
-            idx++;
+            int colon = tag.indexOf(':');
+            terms.add(colon >= 0 ? tag.substring(0, colon + 1) + "-" + tag.substring(colon + 1) : "-" + tag);
+        }
+        if (!terms.isEmpty()) {
+            b.queryParam("ingredients_tags", String.join(",", terms));
         }
 
-        String uri = b.build().toUriString();
+        // nutrient filters: operator + value go in the param NAME (proteins_100g>20).
+        // we pre-encode "<"/">" as %3C/%3E, and below build with encoded=true and
+        // pass a URI object — RestClient's .uri(String) would double-encode the "%"
+        // and OFF would then see a literal "%3E" in the name and silently drop the
+        // filter. the value is discarded per the OFF spec, so none is passed. these
+        // only apply when a tag filter anchors them.
+        if (macros != null) {
+            if (macros.minProtein() != null) b.queryParam("proteins_100g" + GT + macros.minProtein());
+            if (macros.maxCarbs() != null)   b.queryParam("carbohydrates_100g" + LT + macros.maxCarbs());
+            if (macros.maxSugar() != null)   b.queryParam("sugars_100g" + LT + macros.maxSugar());
+            if (macros.maxFat() != null)     b.queryParam("fat_100g" + LT + macros.maxFat());
+            if (macros.maxSalt() != null)    b.queryParam("salt_100g" + LT + macros.maxSalt());
+        }
+
+        // encoded=true: our %3C/%3E are already encoded so don't re-encode them, and
+        // leave the raw ":" in ingredients_tags alone (OFF accepts it). pass a URI,
+        // not a String, so RestClient doesn't run its own encoding pass over it.
+        URI uri = b.build(true).toUri();
         try {
             ResponseEntity<OffV2SearchResponse> resp = offRestClient.get()
                     .uri(uri)

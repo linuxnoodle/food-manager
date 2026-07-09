@@ -6,6 +6,7 @@ import com.foodmanager.foodmanager.client.OpenFoodFactsClient;
 import com.foodmanager.foodmanager.config.OpenFoodFactsProperties;
 import com.foodmanager.foodmanager.dto.FoodSearchPage;
 import com.foodmanager.foodmanager.dto.FoodSummary;
+import com.foodmanager.foodmanager.dto.MacroFilter;
 import com.foodmanager.foodmanager.dto.off.OffNutriments;
 import com.foodmanager.foodmanager.dto.off.OffV2Product;
 import com.foodmanager.foodmanager.dto.off.OffV2SearchResponse;
@@ -65,11 +66,11 @@ public class FoodSearchService {
     // --- public API ---
 
     @Transactional
-    public FoodSearchPage search(List<String> includeTags, List<String> excludeTags, int page, int size) {
+    public FoodSearchPage search(List<String> includeTags, List<String> excludeTags, MacroFilter macros, int page, int size) {
         if (includeTags.isEmpty() && excludeTags.isEmpty()) {
             throw new InvalidSearchQueryException("at least one of include/exclude must be non-empty");
         }
-        String queryKey = buildQueryKey(includeTags, excludeTags, page, size);
+        String queryKey = buildQueryKey(includeTags, excludeTags, macros, page, size);
 
         // Tier 2: db cache
         SearchQueryCache cached = searchCacheRepo.findByQueryKey(queryKey).orElse(null);
@@ -79,7 +80,7 @@ public class FoodSearchService {
 
         // Coalesce concurrent identical searches
         CompletableFuture<FoodSearchPage> future = inflight.computeIfAbsent(queryKey, k ->
-                CompletableFuture.supplyAsync(() -> doSearch(includeTags, excludeTags, page, size, queryKey))
+                CompletableFuture.supplyAsync(() -> doSearch(includeTags, excludeTags, macros, page, size, queryKey))
                         .whenComplete((res, ex) -> inflight.remove(queryKey)));
         try {
             return future.get();
@@ -94,7 +95,7 @@ public class FoodSearchService {
     }
 
     @Transactional(readOnly = true)
-    public FoodSearchPage searchLocal(List<String> includeTags, List<String> excludeTags, int page, int size) {
+    public FoodSearchPage searchLocal(List<String> includeTags, List<String> excludeTags, MacroFilter macros, int page, int size) {
         Set<String> include = new HashSet<>(includeTags);
         Set<String> exclude = new HashSet<>(excludeTags);
 
@@ -103,12 +104,13 @@ public class FoodSearchService {
                 ? foodRepo.findByDeletedFalse()
                 : foodRepo.findByIngredientsTagsInAndDeletedFalse(include);
 
-        // refine: must contain ALL of include, NONE of exclude
+        // refine: must contain ALL of include, NONE of exclude, and satisfy macro bounds
         List<Food> filtered = new ArrayList<>();
         for (Food f : candidates) {
             Set<String> tags = f.getIngredientsTags() == null ? Set.of() : f.getIngredientsTags();
             if (!tags.containsAll(include)) continue;
             if (!Collections.disjoint(exclude, tags)) continue;
+            if (!matchesMacros(f, macros)) continue;
             filtered.add(f);
         }
 
@@ -131,8 +133,8 @@ public class FoodSearchService {
 
     // --- internals ---
 
-    private FoodSearchPage doSearch(List<String> includeTags, List<String> excludeTags, int page, int size, String queryKey) {
-        OffV2SearchResponse resp = client.search(includeTags, excludeTags, page, size);
+    private FoodSearchPage doSearch(List<String> includeTags, List<String> excludeTags, MacroFilter macros, int page, int size, String queryKey) {
+        OffV2SearchResponse resp = client.search(includeTags, excludeTags, macros, page, size);
 
         List<FoodSummary> items = new ArrayList<>(resp.products().size());
         for (OffV2Product p : resp.products()) {
@@ -192,14 +194,27 @@ public class FoodSearchService {
     }
 
     /**
-     * Deterministic key: include-sorted | exclude-sorted | page | size. Sorted so
+     * Deterministic key: include-sorted | exclude-sorted | macros | page | size. Sorted so
      * identical sets in different order hit the same cache row.
      */
-    private String buildQueryKey(List<String> includeTags, List<String> excludeTags, int page, int size) {
+    private String buildQueryKey(List<String> includeTags, List<String> excludeTags, MacroFilter macros, int page, int size) {
         String inc = new TreeSet<>(includeTags).toString();
         String exc = new TreeSet<>(excludeTags).toString();
-        String raw = "i=" + inc + "|e=" + exc + "|p=" + page + "|s=" + size;
+        String mc = macros == null ? "" : macros.toString();
+        String raw = "i=" + inc + "|e=" + exc + "|m=" + mc + "|p=" + page + "|s=" + size;
         return sha256(raw);
+    }
+
+    // a food matches if every bound is satisfied; a missing nutrient value can't be
+    // verified, so we drop it (consistent with "filter by macro")
+    private boolean matchesMacros(Food f, MacroFilter m) {
+        if (m == null || m.isEmpty()) return true;
+        if (m.minProtein() != null && (f.getProteinG() == null || f.getProteinG() < m.minProtein())) return false;
+        if (m.maxCarbs() != null && (f.getCarbsG() == null || f.getCarbsG() > m.maxCarbs())) return false;
+        if (m.maxSugar() != null && (f.getSugarG() == null || f.getSugarG() > m.maxSugar())) return false;
+        if (m.maxFat() != null && (f.getFatG() == null || f.getFatG() > m.maxFat())) return false;
+        if (m.maxSalt() != null && (f.getSaltG() == null || f.getSaltG() > m.maxSalt())) return false;
+        return true;
     }
 
     private static String sha256(String s) {
