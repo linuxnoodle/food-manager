@@ -7,204 +7,104 @@ A food management/calorie counting full-stack app, based on a spring boot backen
 ```
 FoodManager/
 ├── backend/          # spring boot api (java 17, boot 4)
-│   └── src/
-│       ├── main/
-│       │   ├── java/com/foodmanager/foodmanager/
-│       │   │   ├── client/       # external-API adapters (openfoodfacts)
-│       │   │   ├── config/       # security, cors, OFF config beans
-│       │   │   ├── controller/   # rest endpoints
-│       │   │   ├── service/      # business logic + caching
-│       │   │   ├── repo/         # jpa repositories
-│       │   │   ├── entity/       # jpa entities
-│       │   │   ├── dto/          # response records + dto/off/ for OFF shapes
-│       │   │   ├── exception/    # custom exceptions + global handler
-│       │   │   └── FoodmanagerApplication.java
-│       │   └── resources/        # application.properties
-│       └── test/                 # tests, mirror main package layout
-├── frontend/         # react + vite (jsx)
-│   └── src/
-│       ├── pages/    # one component per screen
-│       ├── api.js    # axios calls to the backend
-│       └── ...
-└── README.md         # you are here
+│   └── src/main/
+│       ├── java/com/foodmanager/foodmanager/
+│       │   ├── client/       # OpenFoodFactsClient (http or duckdb impl) + off DTOs
+│       │   ├── ingest/       # build/refresh the self-hosted duckdb mirror
+│       │   ├── config/       # security, cors, OFF beans, scheduling
+│       │   ├── controller/   # rest endpoints
+│       │   ├── service/      # logic + caching
+│       │   ├── repo/         # jpa repositories
+│       │   ├── entity/       # jpa entities
+│       │   ├── dto/          # wire records (+ dto/off/ for OFF shapes)
+│       │   └── exception/    # custom exceptions + global handler
+│       └── resources/
+│           ├── application.properties
+│           ├── db/duckdb/schema.sql        # off_products + off_taxonomy_ingredient
+│           └── taxonomies/ingredients.txt  # vendored OFF ingredient taxonomy (2.7 MB)
+└── frontend/         # react + vite (jsx)
 ```
 
 ## backend layers
 
-controller → service → repo/client → H2 (+ OpenFoodFacts). Controllers stay thin — they just map urls to service calls. Services hold the real logic (validation, nutrition math, OFF orchestration, caching). Repos do the db access, the OFF client talks to the external API. The service always hands the controller a **dto** instead of the raw entity, so fields like the password hash never reach the client.
+controller → service → repo/client → H2 (+ the OFF data source). Controllers stay thin, services hold the real logic (validation, nutrition math, caching), repos do db access. The OFF data source is pluggable behind the `OpenFoodFactsClient` interface — either an http impl that calls `world.openfoodfacts.org`, or a duckdb impl that reads a self-hosted mirror. The service always hands the controller a **dto**, not the raw entity, so the password hash etc. never leak.
 
-packages: `client/` (OFF adapter) · `config/` (security, cors, OFF beans) · `controller/` (rest endpoints) · `service/` (logic) · `repo/` (jpa) · `entity/` (tables) · `dto/` (wire records) · `exception/` (custom exceptions mapped to http statuses by `GlobalExceptionHandler`).
+## data sources — the `app.off` switch
+
+All food data flows through one interface, picked by `app.off.*`:
+
+- **`app.off.mode=remote`** (default) — `HttpOpenFoodFactsClient` calls OFF over the wire. Rate-limited (10 search + 15 product reads per min/IP; OFF bans scrapers), so everything is cached (see [caching](#caching)). No setup.
+- **`app.off.mode=local`** — `DuckDbOpenFoodFactsClient` reads a local DuckDB mirror. You build it first (see [building the mirror](#building-the-mirror)), then all reads hit the local file — **zero OFF calls**, no rate limits.
+- **`app.off.selfhost=true`** — the launch flag. On startup the app **downloads the full OFF JSONL dump itself** and ingests it into DuckDB, then serves from the mirror (the duckdb client activates automatically, no separate mode flip). A daily `@Scheduled` re-sync keeps it fresh. No shell script, no systemd — everything in-process.
+
+In local/selfhost mode the macro-only search quirk disappears (OFF silently drops nutrient filters with no tag anchor; our own queries don't), and autocomplete tags come straight from the canonical taxonomy so they always match product `ingredients_tags`.
+
+## building the mirror
+
+The ingest uses **DuckDB-native `read_json`** — a single SQL query instead of row-by-row JDBC batches. This drops the ingest time from ~60 min to ~2 min (plus download time). The dump is never committed (it's multi-GB); only the 2.7 MB `ingredients.txt` taxonomy is vendored in-repo so autocomplete works out-of-the-box. The DuckDB mirror itself is tracked via Git LFS (`*.duckdb`) and is **799 MB for 4.6M products** (columnar compression).
+
+- **Launch flag (no local file):**
+  ```
+  ./mvnw spring-boot:run -Dspring-boot.run.jvmArguments="-Dapp.off.selfhost=true"
+  # downloads app.off.dump-url (default: static.openfoodfacts.org openfoodfacts-products.jsonl.gz)
+  # → ingests → serves from duckdb → re-syncs every app.off.resync-interval (default 24h)
+  # At ~12 GB compressed download (~8 min), the DuckDB SQL itself runs in ~2 min for 4.6M products.
+  # On restart, skips the download if the temp file and DuckDB mirror are already built.
+  ```
+- **Manual ingest from a file you fetched yourself** (keep for low-bandwidth hosts):
+  ```
+  ./mvnw spring-boot:run --spring.profiles.active=ingest -Dapp.off.dump-path=/path/to/openfoodfacts-products.jsonl.gz
+  # builds the mirror, then keep running with app.off.mode=local to serve from it
+  ```
+  Leave `dump-path` out to only refresh the taxonomy.
+
+## caching (remote mode)
+
+OFF is rate-limited hard, so remote mode caches aggressively:
+
+| Tier | What | Where | TTL |
+|---|---|---|---|
+| 1 | product detail rows | H2 `foods` | 30d (`app.off.cache-ttl`) |
+| 2 | whole search-result pages | H2 `search_cache` | 1h (`app.off.search-cache-ttl`) |
+| 3 | ingredient autocomplete | Caffeine in-memory | 24h (`app.off.taxonomy-cache-ttl`) |
+
+In local/selfhost mode the cache layers just sit under the already-local data — harmless, mostly redundant.
 
 ## database
 
-`backend/data/foodmanager.mv.db` — persistent across restarts. Configuration lives in `application.properties`:
+App tables (H2): users, sessions, food log, recipes, the OFF cache — live in file-based H2 at `backend/data/foodmanager.mv.db`. H2 web console at http://localhost:8080/h2-console (user `sa`, blank pw). `ddl-auto=update` adds tables/columns on boot but never drops. `src/test/resources/application.properties` swaps H2 to in-memory for tests.
 
-```properties
-spring.datasource.url=jdbc:h2:file:./data/foodmanager;DB_CLOSE_DELAY=-1
-spring.jpa.hibernate.ddl-auto=update
-spring.h2.console.enabled=true
-spring.h2.console.path=/h2-console
-```
-
-The H2 web console is at http://localhost:8080/h2-console in dev (JDBC URL `jdbc:h2:file:./data/foodmanager`, user `sa`, blank password). `ddl-auto=update` adds new tables/columns on boot but never drops — fine for dev, swap to `validate` + Flyway for real migrations. `src/test/resources/application.properties` overrides the URL to in-memory H2 so `mvn test` doesn't pollute the dev DB. OpenFoodFacts knobs (cache TTLs, timeouts, user agent) also live in `application.properties` as `app.off.*`.
+The **OFF mirror** is a separate DuckDB file (tracked via Git LFS as `*.duckdb`) at `app.off.duckdb-path` (default `./data/off/foodmanager.duckdb`). Two stores, one process. DuckDB file is **799 MB** for 4.6M products — uses columnar compression (null bitmaps, RLE, dictionary). No indexes needed; columnar scan over the small field set is fast enough on its own.
 
 ## API endpoints
 
-All endpoints require an authenticated session cookie (from `POST /api/auth/login`), except register + login themselves. Unauthenticated → 401. Errors are `application/problem+json` (RFC 7807).
+All require an authenticated session cookie (from `POST /api/auth/login`) except register + login themselves. Unauthenticated → 401. Errors are `application/problem+json` (RFC 7807).
 
 ```
-POST /api/auth/login              body: { identifier, password }            -> sets session cookie
-POST /api/user/register           body: { username, email, password }       -> 201
+POST /api/auth/login              { identifier, password }            -> sets session cookie, 200
+POST /api/user/register           { username, email, password }       -> 201
 
-GET  /api/food/search?include=<csv>&exclude=<csv>&page=1&size=20
-GET  /api/food/local-search?include=<csv>&exclude=<csv>&page=1&size=20
-GET  /api/food/{code}             (?refresh=true to bypass cache)
+GET  /api/food/search?include=<csv>&exclude=<csv>&minProtein=&maxCarbs=&maxSugar=&maxFat=&maxSalt=&page=1&size=20
+GET  /api/food/local-search      (same params)
+GET  /api/food/{code}            (?refresh=true to bypass cache)
 GET  /api/ingredients/autocomplete?q=<text>
 
-POST /api/log                     body: { code, quantity, unit, meal, loggedAt? }
-GET  /api/log                     (?date=YYYY-MM-DD to filter to one day)
+POST /api/log                     { code, quantity, unit, meal, loggedAt? }   -> 201, scaled nutrition
+GET  /api/log                     (?date=YYYY-MM-DD)
 
-POST /api/recipes                 body: { name, description?, servings, instructions?, ingredients:[{code,quantity,unit}] }
+POST /api/recipes                 { name, description?, servings, instructions?, ingredients:[{code,quantity,unit}] } -> 201
 GET  /api/recipes
 ```
 
-### auth
+**search** — `include`/`exclude` are canonical taxonomy tags (`en:chicken`, `en:-gluten`); get them from autocomplete, don't free-type. The `minProtein` / `maxCarbs` / `maxSugar` / `maxFat` / `maxSalt` params are per-100g macro bounds; in local mode they work on their own, in remote mode OFF silently ignores nutrient filters with no tag anchor so send at least one ingredient tag too. Response: `{ page, size, totalCount, items: [{code,name,brand,imageUrl,nutriscoreGrade,novaGroup,allergens,fromCache}], fromCache }`.
 
-#### `POST /api/auth/login`
-- **Request body:** `{ "identifier": "<email or username>", "password": "<plain>" }`
-- **Response 200:** `{ "id": "<uuid>", "username": "...", "email": "..." }`
-- **Response 401:** bad credentials
-- **Side effect:** sets `session=<token>` HttpOnly cookie. Send `withCredentials: true` from axios and the browser handles the rest.
+**`{code}` detail** — `{ code, name, brand, quantity, imageUrl, nutriscoreGrade, novaGroup, ingredientsText, ingredientsTags, allergens, additives, kcal, proteinG, fatG, carbsG, sugarG, saltG, lastFetchedAt, fromCache }` — all nutrients per-100g, nullable. 404 if unknown/tombstoned.
 
-#### `POST /api/user/register`
-- **Request body:** `{ "username": "...", "email": "...", "password": "..." }`
-- **Response 201:** `{ "id": "<uuid>", "username": "...", "email": "..." }`
-- **Response 409:** username or email already taken
+**autocomplete** — `[{ tag:"en:chicken", name:"chicken" }]`; send `tag` back verbatim in `include=`/`exclude=`, show `name`.
 
-### food
+**food log** — `unit` is `g` or `ml`, `meal` is `breakfast|lunch|dinner|snack`, `loggedAt` optional (server-now). Returned nutrients are scaled to the quantity (per-100g × qty / 100). `GET` lists the user's entries newest-first, optional `?date=` filters to one UTC day. 400 on bad input, 404 for an unknown `code`.
 
-#### `GET /api/food/search`
-Ingredient-based structured search. Filters use canonical taxonomy tags (`en:chicken`, `en:gluten`) — get them from `/api/ingredients/autocomplete`, never let users free-type them (OFF's v2 search needs canonical IDs).
-
-- **Query params:** `include` (CSV of tags that must be present), `exclude` (CSV of tags that must be absent), `page` (1-based, default 1), `size` (default 20, clamped to 50). At least one of `include`/`exclude` must be non-empty.
-- **Response 200:**
-  ```json
-  {
-    "page": 1, "size": 20, "totalCount": 4593065,
-    "items": [
-      { "code": "5449000000996", "name": "Coca-Cola",
-        "brand": "The Coca-Cola Company", "imageUrl": "https://...",
-        "nutriscoreGrade": "e", "novaGroup": 4,
-        "allergens": ["en:milk"], "fromCache": false }
-    ],
-    "fromCache": false
-  }
-  ```
-  `totalCount` is OFF's count across all pages, not `items.length`.
-- **Response 400:** no filters / malformed tag
-- **Response 502/503/504:** OFF unreachable / rate-limited / timed out
-
-#### `GET /api/food/local-search`
-Same query shape as `/search` but only queries the local H2 cache (never hits OFF). Useful for "things I've looked at before" or offline mode. Same response shape as `/search` (always `fromCache: true`).
-
-#### `GET /api/food/{code}`
-Full detail for one food. `code` is the opaque OFF product code (from `/search` items' `code`), not a user-typed barcode.
-
-- **Query params:** `?refresh=true` (optional) — bypass cache, force a fresh OFF fetch.
-- **Response 200:**
-  ```json
-  {
-    "code": "5449000000996", "name": "Original Taste", "brand": "Coca-Cola",
-    "quantity": "33 cl", "imageUrl": "https://...",
-    "nutriscoreGrade": "e", "novaGroup": 4,
-    "ingredientsText": "carbonated water, sugar, ...",
-    "ingredientsTags": ["en:carbonated-water", "en:sugar"],
-    "allergens": [], "additives": ["en:e338", "en:e150d"],
-    "kcal": 42.0, "proteinG": 0.0, "fatG": 0.0,
-    "carbsG": 10.6, "sugarG": 10.6, "saltG": 0.0,
-    "lastFetchedAt": "2026-07-08T...", "fromCache": true
-  }
-  ```
-  All nutrient fields are per-100g and may be `null` if OFF doesn't have them.
-- **Response 404:** unknown code or tombstoned product
-
-#### `GET /api/ingredients/autocomplete`
-Returns canonical ingredient tags matching a prefix string. Use to populate include/exclude pickers.
-
-- **Query params:** `?q=<text>` (URL-encoded, min 1 char)
-- **Response 200:**
-  ```json
-  [
-    { "tag": "en:chicken-wing-meat-and-skin", "name": "Chicken wing meat and skin" },
-    { "tag": "en:chicken",                    "name": "chicken" },
-    { "tag": "en:chicken-breast",             "name": "chicken breast" }
-  ]
-  ```
-  Send the `tag` back verbatim in `include=` / `exclude=`. Display the `name`.
-
-### food log
-
-#### `POST /api/log`
-Log a food you ate. `code` comes from `/api/food/search`. The food is fetched + cached from OFF if it isn't already, and the response nutrients are scaled to the quantity (per-100g × quantity / 100).
-
-- **Request body:**
-  ```json
-  { "code": "5449000000996", "quantity": 250, "unit": "ml", "meal": "lunch", "loggedAt": "2026-07-08T12:30:00Z" }
-  ```
-  `meal` is one of `breakfast|lunch|dinner|snack`, `unit` is `g` or `ml`, `loggedAt` is optional (defaults to server-now).
-- **Response 201:**
-  ```json
-  {
-    "id": "<uuid>", "code": "5449000000996", "name": "Original Taste", "imageUrl": "https://...",
-    "quantity": 250.0, "unit": "ml", "meal": "lunch", "loggedAt": "2026-07-08T12:30:00Z",
-    "kcal": 105.0, "proteinG": 0.0, "fatG": 0.0, "carbsG": 26.5, "sugarG": 26.5, "saltG": 0.0
-  }
-  ```
-  Nutrients are scaled to the quantity; a field is `null` if OFF didn't have it.
-- **Response 400:** blank code, quantity ≤ 0, or a bad `unit`/`meal`.
-- **Response 404:** code OFF doesn't know about.
-
-#### `GET /api/log`
-List the current user's entries, newest first.
-
-- **Query params:** `?date=YYYY-MM-DD` (optional) — restrict to one UTC day.
-- **Response 200:** an array of the same entry shape as `POST`.
-
-### recipes
-
-#### `POST /api/recipes`
-Create a recipe. Each ingredient's `code` resolves to a cached Food row (fetched from OFF on a miss), and the per-serving nutrition is summed across ingredients and divided by `servings`.
-
-- **Request body:**
-  ```json
-  {
-    "name": "Chicken & rice",
-    "description": "weeknight thing",
-    "servings": 2,
-    "instructions": "cook the rice, then ...",
-    "ingredients": [
-      { "code": "...", "quantity": 150, "unit": "g" },
-      { "code": "...", "quantity": 200, "unit": "g" }
-    ]
-  }
-  ```
-  `unit` is `g` or `ml`. `description` and `instructions` are optional.
-- **Response 201:**
-  ```json
-  {
-    "id": "<uuid>", "name": "Chicken & rice", "description": "weeknight thing",
-    "servings": 2, "instructions": "cook the rice, then ...",
-    "ingredients": [ { "code": "...", "name": "...", "imageUrl": "...", "quantity": 150.0, "unit": "g" } ],
-    "nutrition": { "kcal": 320.5, "proteinG": 28.0, "fatG": 5.0, "carbsG": 40.0, "sugarG": 0.5, "saltG": 0.2 },
-    "createdAt": "2026-07-08T12:30:00Z"
-  }
-  ```
-  `nutrition` values are per serving. Any nutrient none of the ingredients reported is `null`.
-- **Response 400:** blank name, no ingredients, quantity ≤ 0, bad unit, or a blank ingredient `code`.
-- **Response 404:** an ingredient `code` OFF doesn't know about.
-
-#### `GET /api/recipes`
-List the current user's recipes, newest first. Same response shape as `POST`, one object per recipe.
+**recipes** — each ingredient `code` resolves to a food row; per-serving nutrition is summed across ingredients and divided by `servings`. `nutrition` per serving, any nutrient none of the ingredients reported is `null`. `GET` lists the user's recipes newest-first.
 
 ### status codes
 
@@ -213,71 +113,44 @@ List the current user's recipes, newest first. Same response shape as `POST`, on
 | 200 | success |
 | 201 | created (register, log entry, recipe) |
 | 400 | bad request (bad query, malformed tag, bad code, invalid log/recipe input) |
-| 401 | not authenticated (no/invalid session cookie) |
-| 404 | food not found in OFF (or tombstoned locally) |
+| 401 | not authenticated |
+| 404 | food not found / tombstoned |
 | 409 | username or email already taken |
-| 502 | OFF returned 5xx on a cache-miss (no row to fall back to) |
-| 503 | OFF returned 429 — frontend must back off (IP bans are manual to undo) |
-| 504 | OFF timed out on a cache-miss |
+| 502/503/504 | OFF 5xx / 429 / timeout on a remote cache-miss (local/selfhost mode never produces these) |
 
 ## frontend layout
 
-React 19 + Vite. mui for components, react-router for pages, axios for api calls.
-
-- **src/pages/** — one `.jsx` per screen: `Login`, `Register`, `Dashboard`, `FoodSearch`, `RecipeCreation`.
-- **src/api.js** — every backend call lives here so components don't scatter axios calls around.
-- **src/App.jsx** — the router + overall shell. **src/main.jsx** — entry point. **src/assets/** — images.
-
-Frontend talks to backend over http at `/api/...`; the backend allows `http://localhost:4201` (`CorsConfig`), so the dev server runs there. All calls go through one shared axios instance (`withCredentials: true` carries the session cookie):
+React 19 + Vite. mui for components, react-router for pages, axios for calls. `src/pages/` is one `.jsx` per screen (`Login`, `Register`, `Dashboard`, `FoodSearch`, `RecipeCreation`); `src/api.js` holds every backend call so components don't scatter axios; `src/App.jsx` is the router/shell. The dev server runs at `http://localhost:4201` (allowed by `CorsConfig`), hitting the backend at `http://localhost:8080/api/...` through one shared axios instance with `withCredentials: true` (carries the session cookie).
 
 ```js
-// api.js
-import axios from 'axios'
-const api = axios.create({ baseURL: 'http://localhost:8080/api', withCredentials: true })
-export default api
-
-export const authApi = {
-  login: (identifier, password) => api.post('/auth/login', { identifier, password }),
-  register: (username, email, password) => api.post('/user/register', { username, email, password }),
-}
 export const foodApi = {
-  search: (include, exclude, page = 1, size = 20) =>
-    api.get('/food/search', { params: { include: include.join(','), exclude: exclude.join(','), page, size } }),
-  localSearch: (include, exclude, page = 1, size = 20) =>
-    api.get('/food/local-search', { params: { include: include.join(','), exclude: exclude.join(','), page, size } }),
-  detail: (code, refresh = false) => api.get(`/food/${code}`, { params: refresh ? { refresh: true } : {} }),
+  search: (include, exclude, macros = {}, page = 1, size = 20) =>
+    api.get('/food/search', { params: { include: include.join(','), exclude: exclude.join(','), ...macros, page, size } }),
   autocomplete: (q) => api.get('/ingredients/autocomplete', { params: { q } }),
+  detail: (code) => api.get(`/food/${code}`),
 }
-export const logApi = {
-  add: (code, quantity, unit, meal, loggedAt) => api.post('/log', { code, quantity, unit, meal, loggedAt }),
-  list: (date) => api.get('/log', { params: date ? { date } : {} }),
-}
-export const recipeApi = {
-  create: (recipe) => api.post('/recipes', recipe),
-  list: () => api.get('/recipes'),
-}
+export const logApi   = { add: (e) => api.post('/log', e),        list: (date) => api.get('/log', { params: date ? { date } : {} }) }
+export const recipeApi = { create: (r) => api.post('/recipes', r), list: () => api.get('/recipes') }
 ```
 
 ## TODO
 
-**Done in v1:** food log (`/api/log`), recipes (`/api/recipes`). Both lean on the cached `Food` table for their nutrition numbers.
+**Done:** food log + recipes (cached nutrition); macro/nutrient filters on search; self-hosted DuckDB mirror with the `selfhost` launch flag + daily re-sync.
 
-**Deferred (not yet):**
-- Stale-while-revalidate on the detail path (currently blocking on conditional GET).
-- ETag-based conditional GET (OFF doesn't return ETags currently, so Tier 1 falls back to TTL-only).
-- Barcode scanner UI (would post to `/api/food/{code}` — already works).
-- Admin-only refresh gate (`?refresh=true` is currently open to any authenticated user).
-- Resilience4j circuit breaker / retry around OFF calls. Plain timeouts suffice for class-project scale.
+**Deferred:** stale-while-revalidate on the detail path; ETag conditional GET (OFF doesn't send ETags); barcode-scanner UI; admin-only `?refresh` gate; circuit breaker around remote OFF.
 
 ## how to run
 
 ```bash
-# backend
+# backend (default: remote OFF, over the wire)
 cd backend && ./mvnw spring-boot:run
-# listens on http://localhost:8080
-# h2 console: http://localhost:8080/h2-console (jdbc:h2:file:./data/foodmanager, user sa, blank pw)
+
+# backend, self-hosted: downloads + builds the duckdb mirror, serves from it, re-syncs daily
+cd backend && ./mvnw spring-boot:run -Dspring-boot.run.jvmArguments="-Dapp.off.selfhost=true"
+
+# backend, local mirror you already built
+cd backend && ./mvnw spring-boot:run -Dapp.off.mode=local
 
 # frontend (separate terminal)
 cd frontend && npm run dev
-# listens on http://localhost:4201
 ```

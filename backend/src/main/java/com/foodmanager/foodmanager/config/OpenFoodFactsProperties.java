@@ -17,7 +17,12 @@ public record OpenFoodFactsProperties(
         Duration searchCacheTtl,
         Duration taxonomyCacheTtl,
         Duration connectTimeout,
-        Duration readTimeout
+        Duration readTimeout,
+        String mode,
+        String duckdbPath,
+        boolean selfhost,
+        String dumpUrl,
+        Duration resyncInterval
 ) {
     public OpenFoodFactsProperties {
         if (baseUrl == null || baseUrl.isBlank()) baseUrl = "https://world.openfoodfacts.org";
@@ -27,5 +32,16 @@ public record OpenFoodFactsProperties(
         if (taxonomyCacheTtl == null) taxonomyCacheTtl = Duration.ofHours(24);
         if (connectTimeout == null) connectTimeout = Duration.ofSeconds(3);
         if (readTimeout == null) readTimeout = Duration.ofSeconds(5);
+        // mode: "remote" (call OFF over http, the default) or "local" (use the duckdb mirror)
+        if (mode == null || mode.isBlank()) mode = "remote";
+        // duckdb file for the OFF mirror. the ingest runner fills it in.
+        if (duckdbPath == null || duckdbPath.isBlank()) duckdbPath = "./data/off/foodmanager.duckdb";
+        // selfhost: launch flag -- app downloads + builds the mirror itself, no external scripts
+        // dumpUrl: where the full JSONL dump is pulled from when selfhost=true
+        if (dumpUrl == null || dumpUrl.isBlank()) {
+            dumpUrl = "https://static.openfoodfacts.org/data/openfoodfacts-products.jsonl.gz";
+        }
+        // how often the selfhost flag re-pulls + reloads the dump
+        if (resyncInterval == null) resyncInterval = Duration.ofHours(24);
     }
 }

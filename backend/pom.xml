@@ -62,6 +62,12 @@
 			<artifactId>caffeine</artifactId>
 		</dependency>
 		<dependency>
+			<!-- embedded columnar db for the self-hosted OFF mirror (local mode). no server. -->
+			<groupId>org.duckdb</groupId>
+			<artifactId>duckdb_jdbc</artifactId>
+			<version>1.5.4.0</version>
+		</dependency>
+		<dependency>
 			<groupId>org.projectlombok</groupId>
 			<artifactId>lombok</artifactId>
 			<optional>true</optional>

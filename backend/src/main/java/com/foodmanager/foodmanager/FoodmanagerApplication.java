@@ -1,5 +1,6 @@
 package com.foodmanager.foodmanager;
 
+import com.foodmanager.foodmanager.config.AlreadyRunningGuard;
 import com.foodmanager.foodmanager.entity.User;
 import com.foodmanager.foodmanager.repo.UserRepo;
 import org.springframework.boot.CommandLineRunner;
@@ -12,7 +13,11 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 public class FoodmanagerApplication {
 
 	public static void main(String[] args) {
-		SpringApplication.run(FoodmanagerApplication.class, args);
+		SpringApplication app = new SpringApplication(FoodmanagerApplication.class);
+		// bail out gracefully if another instance is already on the server port
+		// (h2 would otherwise stack-trace on its file lock)
+		app.addListeners(new AlreadyRunningGuard());
+		app.run(args);
 	}
 
 	@Bean
