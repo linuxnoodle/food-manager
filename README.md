@@ -91,9 +91,11 @@ GET  /api/ingredients/autocomplete?q=<text>
 
 POST /api/log                     { code, quantity, unit, meal, loggedAt? }   -> 201, scaled nutrition
 GET  /api/log                     (?date=YYYY-MM-DD)
+DELETE /api/log/{id}              -> 204
 
 POST /api/recipes                 { name, description?, servings, instructions?, ingredients:[{code,quantity,unit}] } -> 201
 GET  /api/recipes
+DELETE /api/recipes/{id}          -> 204
 ```
 
 **search** — `include`/`exclude` are canonical taxonomy tags (`en:chicken`, `en:-gluten`); get them from autocomplete, don't free-type. The `minProtein` / `maxCarbs` / `maxSugar` / `maxFat` / `maxSalt` params are per-100g macro bounds; in local mode they work on their own, in remote mode OFF silently ignores nutrient filters with no tag anchor so send at least one ingredient tag too. Response: `{ page, size, totalCount, items: [{code,name,brand,imageUrl,nutriscoreGrade,novaGroup,allergens,fromCache}], fromCache }`.
@@ -102,9 +104,9 @@ GET  /api/recipes
 
 **autocomplete** — `[{ tag:"en:chicken", name:"chicken" }]`; send `tag` back verbatim in `include=`/`exclude=`, show `name`.
 
-**food log** — `unit` is `g` or `ml`, `meal` is `breakfast|lunch|dinner|snack`, `loggedAt` optional (server-now). Returned nutrients are scaled to the quantity (per-100g × qty / 100). `GET` lists the user's entries newest-first, optional `?date=` filters to one UTC day. 400 on bad input, 404 for an unknown `code`.
+**food log** — `unit` is `g` or `ml`, `meal` is `breakfast|lunch|dinner|snack`, `loggedAt` optional (server-now). Returned nutrients are scaled to the quantity (per-100g × qty / 100). `GET` lists the user's entries newest-first, optional `?date=` filters to one UTC day. `DELETE` removes one entry by id (404 if not yours). 400 on bad input, 404 for an unknown `code`.
 
-**recipes** — each ingredient `code` resolves to a food row; per-serving nutrition is summed across ingredients and divided by `servings`. `nutrition` per serving, any nutrient none of the ingredients reported is `null`. `GET` lists the user's recipes newest-first.
+**recipes** — each ingredient `code` resolves to a food row; per-serving nutrition is summed across ingredients and divided by `servings`. `nutrition` per serving, any nutrient none of the ingredients reported is `null`. `GET` lists the user's recipes newest-first. `DELETE` removes one recipe by id (cascades to its ingredients, 404 if not yours).
 
 ### status codes
 
@@ -112,9 +114,10 @@ GET  /api/recipes
 |---|---|
 | 200 | success |
 | 201 | created (register, log entry, recipe) |
+| 204 | deleted (log entry, recipe) |
 | 400 | bad request (bad query, malformed tag, bad code, invalid log/recipe input) |
 | 401 | not authenticated |
-| 404 | food not found / tombstoned |
+| 404 | food/recipe/log entry not found, or not owned by the caller |
 | 409 | username or email already taken |
 | 502/503/504 | OFF 5xx / 429 / timeout on a remote cache-miss (local/selfhost mode never produces these) |
 

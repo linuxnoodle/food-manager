@@ -11,6 +11,7 @@ import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.UUID;
 
 /**
  * Recipe create + list. Same auth story as everything else —
@@ -35,5 +36,11 @@ public class RecipeController {
     @GetMapping
     public List<RecipeResponse> listRecipes(@AuthenticationPrincipal User user) {
         return recipeService.listRecipes(user);
+    }
+
+    @DeleteMapping("/{id}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void deleteRecipe(@AuthenticationPrincipal User user, @PathVariable UUID id) {
+        recipeService.deleteRecipe(user, id);
     }
 }

@@ -6,6 +6,7 @@ import com.foodmanager.foodmanager.entity.Food;
 import com.foodmanager.foodmanager.entity.Recipe;
 import com.foodmanager.foodmanager.entity.RecipeIngredient;
 import com.foodmanager.foodmanager.entity.User;
+import com.foodmanager.foodmanager.exception.FoodNotFoundException;
 import com.foodmanager.foodmanager.exception.InvalidSearchQueryException;
 import com.foodmanager.foodmanager.repo.FoodRepo;
 import com.foodmanager.foodmanager.repo.RecipeRepo;
@@ -17,6 +18,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
+import java.util.UUID;
 
 /**
  * Recipe create + list. Each ingredient has to resolve to a cached Food row, so
@@ -91,6 +93,16 @@ public class RecipeService {
         return recipeRepo.findByAuthorIdOrderByCreatedAtDesc(author.getId()).stream()
                 .map(r -> toResponse(r, computeNutrition(r)))
                 .toList();
+    }
+
+    @Transactional
+    public void deleteRecipe(User user, UUID id) {
+        Recipe recipe = recipeRepo.findById(id)
+                .orElseThrow(() -> new FoodNotFoundException("recipe: " + id));
+        if (!recipe.getAuthor().getId().equals(user.getId())) {
+                throw new FoodNotFoundException("recipe: " + id);
+        }
+        recipeRepo.delete(recipe);
     }
 
     private void validate(RecipeCreateRequest req) {

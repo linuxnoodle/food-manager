@@ -15,6 +15,7 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.util.List;
+import java.util.UUID;
 
 /**
  * A user's food log. Auth is required — SecurityConfig's
@@ -48,5 +49,11 @@ public class FoodLogController {
         Instant start = date.atStartOfDay().toInstant(ZoneOffset.UTC);
         Instant end = date.plusDays(1).atStartOfDay().toInstant(ZoneOffset.UTC);
         return foodLogService.listEntriesForDay(user, start, end);
+    }
+
+    @DeleteMapping("/{id}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void deleteEntry(@AuthenticationPrincipal User user, @PathVariable UUID id) {
+        foodLogService.deleteEntry(user, id);
     }
 }

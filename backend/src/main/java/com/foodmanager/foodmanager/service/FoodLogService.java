@@ -5,6 +5,7 @@ import com.foodmanager.foodmanager.dto.LogEntryResponse;
 import com.foodmanager.foodmanager.entity.Food;
 import com.foodmanager.foodmanager.entity.FoodLogEntry;
 import com.foodmanager.foodmanager.entity.User;
+import com.foodmanager.foodmanager.exception.FoodNotFoundException;
 import com.foodmanager.foodmanager.exception.InvalidSearchQueryException;
 import com.foodmanager.foodmanager.repo.FoodLogEntryRepo;
 import com.foodmanager.foodmanager.repo.FoodRepo;
@@ -16,6 +17,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.Instant;
 import java.util.List;
 import java.util.Set;
+import java.util.UUID;
 
 /**
  * Append-only food log. On add we resolve the food through {@link FoodService}
@@ -68,6 +70,16 @@ public class FoodLogService {
         return logRepo.findByUserIdAndLoggedAtBetweenOrderByLoggedAtDesc(user.getId(), start, end).stream()
                 .map(this::toResponse)
                 .toList();
+    }
+
+    @Transactional
+    public void deleteEntry(User user, UUID id) {
+        FoodLogEntry entry = logRepo.findById(id)
+                .orElseThrow(() -> new FoodNotFoundException("log entry: " + id));
+        if (!entry.getUser().getId().equals(user.getId())) {
+                throw new FoodNotFoundException("log entry: " + id);
+        }
+        logRepo.delete(entry);
     }
 
     private void validate(LogEntryRequest req) {
