@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { foodApi, logApi } from '../api'
+import { useNavigate } from 'react-router-dom'
 
 function FoodSearch() {
   const [query, setQuery] = useState('')
@@ -8,6 +9,7 @@ function FoodSearch() {
   const [logForm, setLogForm] = useState({})
   const [successMessage, setSuccessMessage] = useState('')
   const [selectedTag, setSelectedTag] = useState(null)
+  const navigate = useNavigate()
 
   async function handleQueryChange(e) {
     const val = e.target.value
@@ -68,6 +70,7 @@ function FoodSearch() {
 
   return (
     <div>
+      <button onClick={() => navigate('/dashboard')}>← Back to Dashboard</button>
       <h1>Food Search</h1>
       {successMessage && <p style={{ color: 'green' }}>{successMessage}</p>}
       <input
