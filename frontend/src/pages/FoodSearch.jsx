@@ -1,6 +1,11 @@
 import { useState } from 'react'
-import { foodApi, logApi } from '../api'
 import { useNavigate } from 'react-router-dom'
+import {
+  Box, Button, Container, Typography, TextField, Card, CardContent,
+  List, ListItem, ListItemText, Divider, Select, MenuItem,
+  FormControl, InputLabel, Alert, AppBar, Toolbar
+} from '@mui/material'
+import { foodApi, logApi } from '../api'
 
 function FoodSearch() {
   const [query, setQuery] = useState('')
@@ -33,7 +38,6 @@ function FoodSearch() {
     setSuggestions([])
     try {
       const res = await foodApi.search([tag], [], 1, 20)
-      console.log(res.data.items)
       setResults(res.data.items)
     } catch (err) {
       console.error('search failed', err)
@@ -69,63 +73,106 @@ function FoodSearch() {
   }
 
   return (
-    <div>
-      <button onClick={() => navigate('/dashboard')}>← Back to Dashboard</button>
-      <h1>Food Search</h1>
-      {successMessage && <p style={{ color: 'green' }}>{successMessage}</p>}
-      <input
-        placeholder="Search ingredients..."
-        value={query}
-        onChange={handleQueryChange}
-      />
-      {suggestions.length > 0 && (
-        <ul>
-          {suggestions.map((s) => (
-            <li
-              key={s.tag}
-              onClick={() => handleSelectTag(s.tag, s.name ?? s.tag)}
-              style={{ cursor: 'pointer' }}
-            >
-              {s.name ?? s.tag}
-            </li>
-          ))}
-        </ul>
-      )}
-      {results.length > 0 && (
-        <ul>
-          {results.map((food) => (
-            <li key={food.code}>
-              <strong>{food.name}</strong> {food.brand && `— ${food.brand}`}
-              <div>
-                <input
-                  type="number"
-                  placeholder="Quantity"
-                  value={logForm[food.code]?.quantity || ''}
-                  onChange={e => handleFormChange(food.code, 'quantity', e.target.value)}
-                />
-                <select
-                  value={logForm[food.code]?.unit || 'g'}
-                  onChange={e => handleFormChange(food.code, 'unit', e.target.value)}
-                >
-                  <option value="g">g</option>
-                  <option value="ml">ml</option>
-                </select>
-                <select
-                  value={logForm[food.code]?.meal || 'lunch'}
-                  onChange={e => handleFormChange(food.code, 'meal', e.target.value)}
-                >
-                  <option value="breakfast">Breakfast</option>
-                  <option value="lunch">Lunch</option>
-                  <option value="dinner">Dinner</option>
-                  <option value="snack">Snack</option>
-                </select>
-                <button onClick={() => handleAddToLog(food)}>Add to Log</button>
-              </div>
-            </li>
-          ))}
-        </ul>
-      )}
-    </div>
+    <Box sx={{ minHeight: '100vh', bgcolor: 'background.default' }}>
+      <AppBar position="static">
+        <Toolbar>
+          <Typography variant="h6" fontWeight="bold" sx={{ flexGrow: 1 }}>
+            CalorieTracker
+          </Typography>
+          <Button color="inherit" onClick={() => navigate('/dashboard')}>
+            ← Dashboard
+          </Button>
+        </Toolbar>
+      </AppBar>
+
+      <Container maxWidth="sm" sx={{ mt: 4 }}>
+        <Typography variant="h5" fontWeight="bold" color="primary" mb={3}>
+          Food Search
+        </Typography>
+
+        {successMessage && <Alert severity="success" sx={{ mb: 2 }}>{successMessage}</Alert>}
+
+        <TextField
+          fullWidth
+          label="Search ingredients..."
+          value={query}
+          onChange={handleQueryChange}
+          sx={{ mb: 1 }}
+        />
+
+        {suggestions.length > 0 && (
+          <Card elevation={2} sx={{ mb: 2, borderRadius: 2 }}>
+            <List disablePadding>
+              {suggestions.map((s, index) => (
+                <Box key={s.tag}>
+                  <ListItem
+                    onClick={() => handleSelectTag(s.tag, s.name ?? s.tag)}
+                    sx={{ cursor: 'pointer', '&:hover': { bgcolor: 'action.hover' } }}
+                  >
+                    <ListItemText primary={s.name ?? s.tag} />
+                  </ListItem>
+                  {index < suggestions.length - 1 && <Divider />}
+                </Box>
+              ))}
+            </List>
+          </Card>
+        )}
+
+        {results.length > 0 && (
+          <List disablePadding>
+            {results.map((food, index) => (
+              <Card key={food.code} elevation={2} sx={{ mb: 2, borderRadius: 2 }}>
+                <CardContent>
+                  <Typography fontWeight="bold">{food.name}</Typography>
+                  {food.brand && (
+                    <Typography variant="body2" color="text.secondary" mb={2}>
+                      {food.brand}
+                    </Typography>
+                  )}
+                  <Box display="flex" gap={1} alignItems="center" flexWrap="wrap">
+                    <TextField
+                      label="Quantity"
+                      type="number"
+                      size="small"
+                      sx={{ width: 100 }}
+                      value={logForm[food.code]?.quantity || ''}
+                      onChange={e => handleFormChange(food.code, 'quantity', e.target.value)}
+                    />
+                    <FormControl size="small" sx={{ width: 80 }}>
+                      <InputLabel>Unit</InputLabel>
+                      <Select
+                        value={logForm[food.code]?.unit || 'g'}
+                        label="Unit"
+                        onChange={e => handleFormChange(food.code, 'unit', e.target.value)}
+                      >
+                        <MenuItem value="g">g</MenuItem>
+                        <MenuItem value="ml">ml</MenuItem>
+                      </Select>
+                    </FormControl>
+                    <FormControl size="small" sx={{ width: 120 }}>
+                      <InputLabel>Meal</InputLabel>
+                      <Select
+                        value={logForm[food.code]?.meal || 'lunch'}
+                        label="Meal"
+                        onChange={e => handleFormChange(food.code, 'meal', e.target.value)}
+                      >
+                        <MenuItem value="breakfast">Breakfast</MenuItem>
+                        <MenuItem value="lunch">Lunch</MenuItem>
+                        <MenuItem value="dinner">Dinner</MenuItem>
+                        <MenuItem value="snack">Snack</MenuItem>
+                      </Select>
+                    </FormControl>
+                    <Button variant="contained" size="small" onClick={() => handleAddToLog(food)}>
+                      Add to Log
+                    </Button>
+                  </Box>
+                </CardContent>
+              </Card>
+            ))}
+          </List>
+        )}
+      </Container>
+    </Box>
   )
 }
 

@@ -1,5 +1,10 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import {
+  Box, Button, Container, Typography, TextField, Card, CardContent,
+  List, ListItem, ListItemText, Divider, Select, MenuItem,
+  FormControl, InputLabel, Alert, AppBar, Toolbar, IconButton
+} from '@mui/material'
 import { foodApi, recipeApi } from '../api'
 
 function RecipeCreation() {
@@ -71,7 +76,6 @@ function RecipeCreation() {
         return setError(`Enter a valid quantity for ${i.name}`)
       }
     }
-
     try {
       await recipeApi.create({
         name,
@@ -92,75 +96,134 @@ function RecipeCreation() {
   }
 
   return (
-    <div>
-      <h1>Create Recipe</h1>
-      {error && <p style={{ color: 'red' }}>{error}</p>}
-      {success && <p style={{ color: 'green' }}>{success}</p>}
+    <Box sx={{ minHeight: '100vh', bgcolor: 'background.default' }}>
+      <AppBar position="static">
+        <Toolbar>
+          <Typography variant="h6" fontWeight="bold" sx={{ flexGrow: 1 }}>
+            CalorieTracker
+          </Typography>
+          <Button color="inherit" onClick={() => navigate('/dashboard')}>
+            ← Dashboard
+          </Button>
+        </Toolbar>
+      </AppBar>
 
-      <div>
-        <input placeholder="Recipe name" value={name} onChange={e => setName(e.target.value)} />
-      </div>
-      <div>
-        <input placeholder="Description (optional)" value={description} onChange={e => setDescription(e.target.value)} />
-      </div>
-      <div>
-        <input type="number" placeholder="Servings" value={servings} min={1} onChange={e => setServings(e.target.value)} />
-      </div>
-      <div>
-        <textarea placeholder="Instructions (optional)" value={instructions} onChange={e => setInstructions(e.target.value)} />
-      </div>
+      <Container maxWidth="sm" sx={{ mt: 4, pb: 4 }}>
+        <Typography variant="h5" fontWeight="bold" color="primary" mb={3}>
+          Create Recipe
+        </Typography>
 
-      <h2>Ingredients</h2>
-      {ingredients.length > 0 && (
-        <ul>
-          {ingredients.map(i => (
-            <li key={i.code}>
-              <strong>{i.name}</strong>
-              <input
-                type="number"
-                placeholder="Quantity"
-                value={i.quantity}
-                onChange={e => handleIngredientChange(i.code, 'quantity', e.target.value)}
-              />
-              <select value={i.unit} onChange={e => handleIngredientChange(i.code, 'unit', e.target.value)}>
-                <option value="g">g</option>
-                <option value="ml">ml</option>
-              </select>
-              <button onClick={() => handleRemoveIngredient(i.code)}>Remove</button>
-            </li>
-          ))}
-        </ul>
-      )}
+        {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+        {success && <Alert severity="success" sx={{ mb: 2 }}>{success}</Alert>}
 
-      <h3>Search for ingredients</h3>
-      <input
-        placeholder="Search ingredients..."
-        value={query}
-        onChange={handleQueryChange}
-      />
-      {suggestions.length > 0 && (
-        <ul>
-          {suggestions.map(s => (
-            <li key={s.tag} onClick={() => handleSelectTag(s.tag, s.name ?? s.tag)} style={{ cursor: 'pointer' }}>
-              {s.name ?? s.tag}
-            </li>
-          ))}
-        </ul>
-      )}
-      {searchResults.length > 0 && (
-        <ul>
-          {searchResults.map(food => (
-            <li key={food.code}>
-              <strong>{food.name}</strong> {food.brand && `— ${food.brand}`}
-              <button onClick={() => handleAddIngredient(food)}>Add</button>
-            </li>
-          ))}
-        </ul>
-      )}
+        <Card elevation={2} sx={{ borderRadius: 3, mb: 3 }}>
+          <CardContent>
+            <Typography variant="subtitle1" fontWeight="bold" mb={2}>Recipe Details</Typography>
+            <TextField fullWidth label="Recipe Name" value={name} onChange={e => setName(e.target.value)} sx={{ mb: 2 }} />
+            <TextField fullWidth label="Description (optional)" value={description} onChange={e => setDescription(e.target.value)} sx={{ mb: 2 }} />
+            <TextField fullWidth type="number" label="Servings" value={servings} onChange={e => setServings(e.target.value)} inputProps={{ min: 1 }} sx={{ mb: 2 }} />
+            <TextField fullWidth multiline rows={3} label="Instructions (optional)" value={instructions} onChange={e => setInstructions(e.target.value)} />
+          </CardContent>
+        </Card>
 
-      <br />
-      <button onClick={handleSubmit}>Create Recipe</button>
-    </div>
+        <Typography variant="subtitle1" fontWeight="bold" color="primary" mb={2}>
+          Ingredients
+        </Typography>
+
+        {ingredients.length > 0 && (
+          <Card elevation={2} sx={{ borderRadius: 3, mb: 3 }}>
+            <List disablePadding>
+              {ingredients.map((ing, index) => (
+                <Box key={ing.code}>
+                  <ListItem>
+                    <ListItemText primary={ing.name} />
+                    <Box display="flex" gap={1} alignItems="center">
+                      <TextField
+                        type="number"
+                        size="small"
+                        label="Qty"
+                        sx={{ width: 80 }}
+                        value={ing.quantity}
+                        onChange={e => handleIngredientChange(ing.code, 'quantity', e.target.value)}
+                      />
+                      <FormControl size="small" sx={{ width: 80 }}>
+                        <InputLabel>Unit</InputLabel>
+                        <Select
+                          value={ing.unit}
+                          label="Unit"
+                          onChange={e => handleIngredientChange(ing.code, 'unit', e.target.value)}
+                        >
+                          <MenuItem value="g">g</MenuItem>
+                          <MenuItem value="ml">ml</MenuItem>
+                        </Select>
+                      </FormControl>
+                      <Button size="small" color="error" onClick={() => handleRemoveIngredient(ing.code)}>
+                        Remove
+                      </Button>
+                    </Box>
+                  </ListItem>
+                  {index < ingredients.length - 1 && <Divider />}
+                </Box>
+              ))}
+            </List>
+          </Card>
+        )}
+
+        <Typography variant="subtitle1" fontWeight="bold" mb={1}>
+          Search Ingredients
+        </Typography>
+        <TextField
+          fullWidth
+          label="Search ingredients..."
+          value={query}
+          onChange={handleQueryChange}
+          sx={{ mb: 1 }}
+        />
+
+        {suggestions.length > 0 && (
+          <Card elevation={2} sx={{ mb: 2, borderRadius: 2 }}>
+            <List disablePadding>
+              {suggestions.map((s, index) => (
+                <Box key={s.tag}>
+                  <ListItem
+                    onClick={() => handleSelectTag(s.tag, s.name ?? s.tag)}
+                    sx={{ cursor: 'pointer', '&:hover': { bgcolor: 'action.hover' } }}
+                  >
+                    <ListItemText primary={s.name ?? s.tag} />
+                  </ListItem>
+                  {index < suggestions.length - 1 && <Divider />}
+                </Box>
+              ))}
+            </List>
+          </Card>
+        )}
+
+        {searchResults.length > 0 && (
+          <Card elevation={2} sx={{ borderRadius: 2, mb: 3 }}>
+            <List disablePadding>
+              {searchResults.map((food, index) => (
+                <Box key={food.code}>
+                  <ListItem>
+                    <ListItemText
+                      primary={food.name}
+                      secondary={food.brand}
+                    />
+                    <Button variant="outlined" size="small" onClick={() => handleAddIngredient(food)}>
+                      Add
+                    </Button>
+                  </ListItem>
+                  {index < searchResults.length - 1 && <Divider />}
+                </Box>
+              ))}
+            </List>
+          </Card>
+        )}
+
+        <Button fullWidth variant="contained" size="large" onClick={handleSubmit}>
+          Create Recipe
+        </Button>
+      </Container>
+    </Box>
   )
 }
 
