@@ -16,11 +16,13 @@ export const foodApi = {
 }
 
 export const logApi = {
-  add: (code, quantity, unit, meal) => api.post('/log', { code, quantity, unit, meal }),
+  add: (e) => api.post('/log', e),
   list: (date) => api.get('/log', { params: date ? { date } : {} }),
+  delete: (id) => api.delete(`/log/${id}`),
 }
 
 export const recipeApi = {
-  create: (recipe) => api.post('/recipes', recipe),
+  create: (r) => api.post('/recipes', r),
   list: () => api.get('/recipes'),
+  delete: (id) => api.delete(`/recipes/${id}`),
 }

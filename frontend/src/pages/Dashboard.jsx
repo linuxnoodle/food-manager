@@ -11,20 +11,28 @@ function Dashboard() {
   const [loading, setLoading] = useState(true)
   const navigate = useNavigate()
 
-  useEffect(() => {
-    async function fetchLog() {
-      const today = new Date().toISOString().split('T')[0]
-      try {
-        const res = await logApi.list(today)
-        setLogs(res.data)
-      } catch (err) {
-        console.error('failed to fetch log', err)
-      } finally {
-        setLoading(false)
-      }
+  async function fetchLog() {
+    const today = new Date().toISOString().split('T')[0]
+    try {
+      const res = await logApi.list(today)
+      setLogs(res.data)
+    } catch (err) {
+      console.error('failed to fetch log', err)
+    } finally {
+      setLoading(false)
     }
-    fetchLog()
-  }, [])
+  }
+
+  useEffect(() => { fetchLog() }, [])
+
+  async function handleDelete(id) {
+    try {
+      await logApi.delete(id)
+      setLogs(prev => prev.filter(e => e.id !== id))
+    } catch (err) {
+      console.error('failed to delete entry', err)
+    }
+  }
 
   const totalCalories = logs.reduce((sum, entry) => sum + (entry.kcal ?? 0), 0)
 
@@ -102,9 +110,18 @@ function Dashboard() {
                       }
                       secondary={`${entry.quantity}${entry.unit}`}
                     />
-                    <Typography fontWeight="bold" color="primary">
-                      {entry.kcal != null ? `${entry.kcal.toFixed(0)} kcal` : '—'}
-                    </Typography>
+                    <Box display="flex" alignItems="center" gap={1}>
+                      <Typography fontWeight="bold" color="primary">
+                        {entry.kcal != null ? `${entry.kcal.toFixed(0)} kcal` : '—'}
+                      </Typography>
+                      <Button
+                        size="small"
+                        color="error"
+                        onClick={() => handleDelete(entry.id)}
+                      >
+                        Remove
+                      </Button>
+                    </Box>
                   </ListItem>
                   {index < logs.length - 1 && <Divider />}
                 </Box>
