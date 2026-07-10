@@ -39,7 +39,7 @@ function RecipeCreation() {
     setQuery(name)
     setSuggestions([])
     try {
-      const res = await foodApi.search([tag], [], 1, 20)
+      const res = await foodApi.localSearch([tag], [], {}, 1, 20)
       setSearchResults(res.data.items)
     } catch (err) {
       console.error('search failed', err)

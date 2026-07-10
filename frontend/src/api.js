@@ -10,9 +10,12 @@ export const authApi = {
 }
 
 export const foodApi = {
-  search: (include, exclude, page = 1, size = 20) =>
-    api.get('/food/search', { params: { include: include.join(','), exclude: exclude.join(','), page, size } }),
+  search: (include, exclude, macros = {}, page = 1, size = 20) =>
+    api.get('/food/search', { params: { include: include.join(','), exclude: exclude.join(','), ...macros, page, size } }),
+  localSearch: (include, exclude, macros = {}, page = 1, size = 20) =>
+    api.get('/food/local-search', { params: { include: include.join(','), exclude: exclude.join(','), ...macros, page, size } }),
   autocomplete: (q) => api.get('/ingredients/autocomplete', { params: { q } }),
+  detail: (code) => api.get(`/food/${code}`),
 }
 
 export const logApi = {
